@@ -1,0 +1,19 @@
+{
+  "name": "Among Us Runner",
+  "short_name": "AU Runner",
+  "description": "Run through space, dodge sabotage, hit 1,000 pts, find your girlfriend. Plot twist included.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#050510",
+  "theme_color": "#080818",
+  "orientation": "any",
+  "lang": "en-US",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'><rect fill='%23080818' width='128' height='128' rx='24'/><ellipse cx='64' cy='72' rx='28' ry='34' fill='%23C51111'/><ellipse cx='72' cy='58' rx='18' ry='12' fill='%2371c5e8'/></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
