@@ -36,17 +36,10 @@
       top: 0;
       left: 0;
       width: 100vw;
-      height: 100svh;
-      height: 100dvh;
+      height: 100%;
       background: #080818;
       overflow: hidden;
       -webkit-tap-highlight-color: transparent;
-    }
-
-    @supports (height: 100svh) {
-      #game-container {
-        height: 100svh;
-      }
     }
 
     #rotate-prompt {
@@ -275,7 +268,10 @@
       'use strict';
 
       const canvas = document.getElementById('game');
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+      const skyCache = document.createElement('canvas');
+      const skyCtx = skyCache.getContext('2d', { alpha: false });
+      let skyCacheReady = false;
       const overlay = document.getElementById('overlay');
       const overlayContent = document.getElementById('overlay-content');
       const playAgainBtn = document.getElementById('playAgain');
@@ -751,9 +747,10 @@
         if (!lockedLayoutH) {
           lockedLayoutH = Math.max(window.innerHeight, container.clientHeight);
           container.style.height = lockedLayoutH + 'px';
+          document.documentElement.style.height = lockedLayoutH + 'px';
+          document.body.style.height = lockedLayoutH + 'px';
         }
         playSurfaceLocked = true;
-        resizeCanvas(true, 'lock');
       }
 
       function resizeCanvas(force, reason) {
@@ -787,12 +784,19 @@
         const oldGroundY = groundY;
         const wasJumping = player.jumping;
         const playerScreenY = player.y;
+        const nextCanvasW = Math.max(1, Math.round(w * dpr));
+        const nextCanvasH = Math.max(1, Math.round(h * dpr));
+        const sizeChanged = canvas.width !== nextCanvasW || canvas.height !== nextCanvasH;
 
-        canvas.width = Math.max(1, w * dpr);
-        canvas.height = Math.max(1, h * dpr);
-        canvas.style.width = w + 'px';
-        canvas.style.height = h + 'px';
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (sizeChanged) {
+          canvas.width = nextCanvasW;
+          canvas.height = nextCanvasH;
+          canvas.style.width = w + 'px';
+          canvas.style.height = h + 'px';
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        } else if (playSurfaceLocked && reason === 'lock') {
+          return;
+        }
 
         groundY = h * 0.84;
 
@@ -821,6 +825,9 @@
         const shouldReinitSpace = reason === 'orientation' || reason === 'init' || lastLayoutW === 0;
         if (shouldReinitSpace) {
           initSpaceField(w, h);
+          rebuildSkyCache(w, h);
+        } else if (sizeChanged) {
+          rebuildSkyCache(w, h);
         }
 
         lastLayoutW = w;
@@ -832,6 +839,17 @@
         resizeDebounceTimer = setTimeout(function () {
           resizeCanvas(force, reason || (force ? 'lock' : 'resize'));
         }, force ? 0 : 160);
+      }
+
+      function rebuildSkyCache(w, h) {
+        const dpr = window.devicePixelRatio || 1;
+        const cacheH = Math.max(1, Math.round(groundY * dpr));
+        const cacheW = Math.max(1, Math.round(w * dpr));
+        skyCache.width = cacheW;
+        skyCache.height = cacheH;
+        skyCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawSky(w, h, skyCtx);
+        skyCacheReady = true;
       }
 
       function initSpaceField(w, h) {
@@ -896,7 +914,10 @@
           lastLayoutW = 0;
           lastLayoutH = 0;
           playSurfaceLocked = false;
+          skyCacheReady = false;
           document.getElementById('game-container').style.height = '';
+          document.documentElement.style.height = '';
+          document.body.style.height = '';
         }
 
         player.x = 80;
@@ -1533,24 +1554,26 @@
         return 'rgb(' + r + ',' + g + ',' + b + ')';
       }
 
-      function drawSpaceNebulae(w) {
+      function drawSpaceNebulae(w, targetCtx) {
+        const c = targetCtx || ctx;
         for (const neb of spaceField.nebulae) {
-          const g = ctx.createRadialGradient(neb.x, neb.y, 0, neb.x, neb.y, neb.r);
+          const g = c.createRadialGradient(neb.x, neb.y, 0, neb.x, neb.y, neb.r);
           g.addColorStop(0, neb.color);
           g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = g;
-          ctx.fillRect(0, 0, w, groundY);
+          c.fillStyle = g;
+          c.fillRect(0, 0, w, groundY);
         }
       }
 
       function drawSpaceParallax(w, scroll) {
         const speeds = [0.02, 0.06, 0.12];
         const tw = frameCount * 0.04;
+        const twinkleStars = !isTouchDevice;
 
         for (const star of spaceField.stars) {
           const speed = speeds[star.layer];
           const sx = ((star.x - scroll * speed) % (w + 20) + w + 20) % (w + 20) - 10;
-          const twinkle = 0.55 + Math.sin(tw + star.twinkle) * 0.45;
+          const twinkle = twinkleStars ? (0.55 + Math.sin(tw + star.twinkle) * 0.45) : 1;
           const alpha = star.brightness * twinkle;
           if (star.size > 1.6) {
             ctx.fillStyle = 'rgba(180, 210, 255, ' + (alpha * 0.35) + ')';
@@ -1602,24 +1625,25 @@
         ctx.fill();
       }
 
-      function drawSky(w, h) {
-        const grad = ctx.createLinearGradient(0, 0, 0, groundY);
+      function drawSky(w, h, targetCtx) {
+        const c = targetCtx || ctx;
+        const grad = c.createLinearGradient(0, 0, 0, groundY);
         grad.addColorStop(0, '#020208');
         grad.addColorStop(0.35, '#0a0820');
         grad.addColorStop(0.7, '#0d1030');
         grad.addColorStop(1, '#121838');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, groundY);
+        c.fillStyle = grad;
+        c.fillRect(0, 0, w, groundY);
 
-        drawSpaceNebulae(w);
+        drawSpaceNebulae(w, c);
 
-        const milky = ctx.createLinearGradient(0, groundY * 0.1, w, groundY * 0.6);
+        const milky = c.createLinearGradient(0, groundY * 0.1, w, groundY * 0.6);
         milky.addColorStop(0, 'rgba(255,255,255,0)');
         milky.addColorStop(0.45, 'rgba(180, 160, 255, 0.04)');
         milky.addColorStop(0.55, 'rgba(120, 180, 255, 0.05)');
         milky.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = milky;
-        ctx.fillRect(0, 0, w, groundY);
+        c.fillStyle = milky;
+        c.fillRect(0, 0, w, groundY);
       }
 
       function drawGround(w) {
@@ -2247,12 +2271,13 @@
         const titleSize = mobileLandscape ? 18 : 22;
         const lineGap = mobileLandscape ? 22 : 28;
 
-        ctx.fillStyle = 'rgba(5, 5, 16, 0.55)';
-        ctx.fillRect(0, 0, w, groundY);
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 1;
 
         ctx.fillStyle = '#e2e8f0';
         ctx.font = '700 ' + titleSize + 'px system-ui, sans-serif';
-        ctx.textAlign = 'center';
         ctx.fillText('Among Us Runner', cx, baseY);
 
         ctx.fillStyle = '#f48fb1';
@@ -2273,6 +2298,9 @@
         ctx.fillStyle = '#71c5e8';
         ctx.font = '600 ' + (mobileLandscape ? 12 : 13) + 'px system-ui, sans-serif';
         ctx.fillText(isTouchDevice ? 'Tap to start' : 'Press to start. Romance is a grind.', cx, baseY + lineGap * 4);
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
       }
 
       function render() {
@@ -2280,8 +2308,19 @@
         const w = canvas.width / dpr;
         const h = canvas.height / dpr;
 
-        ctx.clearRect(0, 0, w, h);
-        drawSky(w, h);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.filter = 'none';
+
+        ctx.fillStyle = '#080818';
+        ctx.fillRect(0, 0, w, h);
+
+        if (skyCacheReady) {
+          ctx.drawImage(skyCache, 0, 0, w, groundY);
+        } else {
+          drawSky(w, h);
+        }
         drawSpaceParallax(w, distanceRan);
         drawGround(w);
 
@@ -2532,8 +2571,14 @@
         lastLayoutW = 0;
         lastLayoutH = 0;
         playSurfaceLocked = false;
+        skyCacheReady = false;
         document.getElementById('game-container').style.height = '';
+        document.documentElement.style.height = '';
+        document.body.style.height = '';
         setTimeout(function () {
+          if (isMobileLandscape()) {
+            lockPlaySurface();
+          }
           scheduleResize(true, 'orientation');
         }, 200);
       });
@@ -2553,10 +2598,7 @@
       }
 
       if (isMobileLandscape()) {
-        const bootContainer = document.getElementById('game-container');
-        lockedLayoutH = Math.max(window.innerHeight, bootContainer.clientHeight);
-        bootContainer.style.height = lockedLayoutH + 'px';
-        playSurfaceLocked = true;
+        lockPlaySurface();
       }
       resizeCanvas(true, 'init');
       resetGame();
