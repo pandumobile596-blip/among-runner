@@ -18,23 +18,32 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      overscroll-behavior: none;
+      position: fixed;
+      inset: 0;
     }
 
     body {
       background: #050510;
-      touch-action: manipulation;
+      touch-action: none;
     }
 
     #game-container {
       position: fixed;
-      top: env(safe-area-inset-top, 0);
-      right: env(safe-area-inset-right, 0);
-      bottom: env(safe-area-inset-bottom, 0);
-      left: env(safe-area-inset-left, 0);
-      width: auto;
-      height: auto;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100svh;
+      height: 100dvh;
       background: #080818;
       overflow: hidden;
+      contain: strict;
+    }
+
+    @supports (height: 100svh) {
+      #game-container {
+        height: 100svh;
+      }
     }
 
     #rotate-prompt {
@@ -718,12 +727,38 @@
 
       let girl = null;
       const obstacles = [];
+      let lastLayoutW = 0;
+      let lastLayoutH = 0;
+      let lockedLayoutH = 0;
+      let resizeDebounceTimer = 0;
 
-      function resizeCanvas() {
+      function resizeCanvas(force) {
         const container = document.getElementById('game-container');
         const dpr = window.devicePixelRatio || 1;
-        const w = container.clientWidth;
-        const h = container.clientHeight;
+        let w = container.clientWidth;
+        let h = container.clientHeight;
+
+        if (isTouchDevice && window.innerWidth > window.innerHeight) {
+          if (!lockedLayoutH) {
+            lockedLayoutH = Math.max(h, window.innerHeight);
+            container.style.height = lockedLayoutH + 'px';
+            h = lockedLayoutH;
+          } else {
+            h = lockedLayoutH;
+          }
+        }
+
+        if (!force && lastLayoutW > 0 && lastLayoutH > 0) {
+          const dw = Math.abs(w - lastLayoutW);
+          const dh = Math.abs(h - lastLayoutH);
+          if (isTouchDevice && gameState === 'playing' && dw < 48 && dh < 48) {
+            return;
+          }
+        }
+
+        const oldGroundY = groundY;
+        const wasJumping = player.jumping;
+        const playerScreenY = player.y;
 
         canvas.width = Math.max(1, w * dpr);
         canvas.height = Math.max(1, h * dpr);
@@ -732,8 +767,43 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         groundY = h * 0.84;
-        player.y = groundY - player.height;
-        initSpaceField(w, h);
+
+        if (wasJumping && oldGroundY > 0) {
+          player.y = playerScreenY + (groundY - oldGroundY);
+        } else if (gameState !== 'playing' || oldGroundY === 0) {
+          player.y = groundY - player.height;
+        } else {
+          player.y = groundY - player.height;
+        }
+
+        if (girl) {
+          girl.y = groundY - player.height;
+        }
+
+        for (let i = 0; i < obstacles.length; i++) {
+          const obs = obstacles[i];
+          if (obs.kind === 'ground') {
+            obs.y = groundY - obs.height;
+          } else if (oldGroundY > 0) {
+            obs.baseY += groundY - oldGroundY;
+            obs.y = obs.baseY + Math.sin(obs.bob || 0) * 4;
+          }
+        }
+
+        const layoutChanged = Math.abs(w - lastLayoutW) > 48 || Math.abs(h - lastLayoutH) > 48 || lastLayoutW === 0;
+        if (layoutChanged) {
+          initSpaceField(w, h);
+        }
+
+        lastLayoutW = w;
+        lastLayoutH = h;
+      }
+
+      function scheduleResize(force) {
+        clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = setTimeout(function () {
+          resizeCanvas(force);
+        }, force ? 0 : 160);
       }
 
       function initSpaceField(w, h) {
@@ -793,6 +863,10 @@
         touchPtr.active = false;
         touchPtr.duckSwipe = false;
         duckBtn.classList.remove('pressed');
+        lockedLayoutH = 0;
+        lastLayoutW = 0;
+        lastLayoutH = 0;
+        document.getElementById('game-container').style.height = '';
 
         player.x = 80;
         player.y = groundY - player.height;
@@ -842,11 +916,10 @@
         if (!isTouchDevice || window.innerHeight > window.innerWidth) {
           return;
         }
-        const root = document.documentElement;
-        if (root.requestFullscreen) {
-          root.requestFullscreen().catch(function () {});
-        } else if (root.webkitRequestFullscreen) {
-          root.webkitRequestFullscreen();
+        if (!lockedLayoutH) {
+          lockedLayoutH = Math.max(window.innerHeight, document.getElementById('game-container').clientHeight);
+          document.getElementById('game-container').style.height = lockedLayoutH + 'px';
+          scheduleResize(true);
         }
         if (screen.orientation && screen.orientation.lock) {
           screen.orientation.lock('landscape').catch(function () {});
@@ -2424,10 +2497,26 @@
         AudioSfx.unlock();
       });
 
-      window.addEventListener('resize', resizeCanvas);
-      window.addEventListener('orientationchange', function () {
-        setTimeout(resizeCanvas, 120);
+      window.addEventListener('resize', function () {
+        scheduleResize(false);
       });
+      window.addEventListener('orientationchange', function () {
+        lockedLayoutH = 0;
+        lastLayoutW = 0;
+        lastLayoutH = 0;
+        document.getElementById('game-container').style.height = '';
+        setTimeout(function () {
+          scheduleResize(true);
+        }, 200);
+      });
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', function () {
+          if (gameState === 'playing') {
+            return;
+          }
+          scheduleResize(false);
+        });
+      }
 
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
@@ -2435,7 +2524,7 @@
         });
       }
 
-      resizeCanvas();
+      resizeCanvas(true);
       resetGame();
       requestAnimationFrame(loop);
     })();
