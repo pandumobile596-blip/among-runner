@@ -179,12 +179,19 @@
       bottom: max(12px, env(safe-area-inset-bottom, 12px));
       right: max(12px, env(safe-area-inset-right, 12px));
       z-index: 4;
+      flex-direction: column;
+      gap: 10px;
       pointer-events: none;
     }
 
     @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
       #mobile-controls {
-        display: block;
+        display: flex;
+      }
+
+      #game {
+        pointer-events: none;
+        cursor: default;
       }
     }
 
@@ -197,11 +204,10 @@
         font-size: 20px;
       }
 
-      #duckBtn {
-        padding: 14px 18px;
-        min-width: 72px;
-        min-height: 56px;
-        font-size: 22px;
+      .mobile-btn {
+        width: 72px;
+        height: 64px;
+        font-size: 26px;
       }
     }
 
@@ -220,22 +226,37 @@
       }
     }
 
-    #duckBtn {
+    .mobile-btn {
       pointer-events: auto;
       touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
       -webkit-user-select: none;
       user-select: none;
-      padding: 14px 20px;
-      min-width: 88px;
-      min-height: 48px;
-      font: 700 14px system-ui, sans-serif;
-      letter-spacing: 0.04em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 80px;
+      height: 56px;
+      padding: 0;
+      font: 700 24px/1 system-ui, sans-serif;
+      letter-spacing: 0;
       color: #e2e8f0;
-      background: rgba(15, 20, 32, 0.82);
+      background: rgba(15, 20, 32, 0.88);
       border: 2px solid rgba(113, 197, 232, 0.55);
-      border-radius: 12px;
+      border-radius: 14px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
       cursor: pointer;
+    }
+
+    #jumpBtn {
+      border-color: rgba(244, 143, 177, 0.65);
+    }
+
+    #jumpBtn:active,
+    #jumpBtn.pressed {
+      background: rgba(244, 143, 177, 0.22);
+      border-color: #f48fb1;
+      transform: scale(0.96);
     }
 
     #duckBtn:active,
@@ -259,7 +280,8 @@
       <button id="playAgain">Run Again</button>
     </div>
     <div id="mobile-controls">
-      <button id="duckBtn" type="button" aria-label="Duck" translate="no" class="notranslate">↓</button>
+      <button id="jumpBtn" type="button" aria-label="Jump" translate="no" class="mobile-btn notranslate">↑</button>
+      <button id="duckBtn" type="button" aria-label="Duck" translate="no" class="mobile-btn notranslate">↓</button>
     </div>
   </div>
 
@@ -275,9 +297,9 @@
       const overlay = document.getElementById('overlay');
       const overlayContent = document.getElementById('overlay-content');
       const playAgainBtn = document.getElementById('playAgain');
+      const jumpBtn = document.getElementById('jumpBtn');
       const duckBtn = document.getElementById('duckBtn');
       const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-      const touchPtr = { active: false, id: -1, sx: 0, sy: 0, duckSwipe: false };
 
       const FPS = 60;
       const MS_PER_FRAME = 1000 / FPS;
@@ -906,8 +928,7 @@
         lastTime = 0;
         obstacles.length = 0;
         girl = null;
-        touchPtr.active = false;
-        touchPtr.duckSwipe = false;
+        jumpBtn.classList.remove('pressed');
         duckBtn.classList.remove('pressed');
         if (!isMobileLandscape()) {
           lockedLayoutH = 0;
@@ -1514,8 +1535,7 @@
               downHeld = false;
               jumpHeld = false;
               speedDrop = false;
-              touchPtr.active = false;
-              touchPtr.duckSwipe = false;
+              jumpBtn.classList.remove('pressed');
               duckBtn.classList.remove('pressed');
               AudioSfx.gameOver();
               updateOverlay();
@@ -2291,13 +2311,13 @@
         ctx.fillStyle = '#94a3b8';
         ctx.font = (mobileLandscape ? 11 : 13) + 'px system-ui, sans-serif';
         if (isTouchDevice) {
-          ctx.fillText('Tap = jump  ·  Hold ↓ = duck', cx, baseY + lineGap * 3);
+          ctx.fillText('↑ = jump   ·   ↓ = duck (use buttons)', cx, baseY + lineGap * 3);
         } else {
           ctx.fillText('Space / ↑ = jump   ·   ↓ = duck', cx, baseY + lineGap * 3);
         }
         ctx.fillStyle = '#71c5e8';
         ctx.font = '600 ' + (mobileLandscape ? 12 : 13) + 'px system-ui, sans-serif';
-        ctx.fillText(isTouchDevice ? 'Tap to start' : 'Press to start. Romance is a grind.', cx, baseY + lineGap * 4);
+        ctx.fillText(isTouchDevice ? 'Press ↑ to start' : 'Press to start. Romance is a grind.', cx, baseY + lineGap * 4);
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
         ctx.shadowOffsetY = 0;
@@ -2451,10 +2471,31 @@
         }
       });
 
+      function beginJumpInput() {
+        if (gameState === 'gameover' || gameState === 'victory') {
+          return;
+        }
+        AudioSfx.unlock();
+        if (gameState === 'ready') {
+          startGame();
+        }
+        jumpHeld = true;
+        player.ducking = false;
+        jumpBtn.classList.add('pressed');
+        startJump();
+      }
+
+      function endJumpInput() {
+        jumpHeld = false;
+        endJump();
+        jumpBtn.classList.remove('pressed');
+      }
+
       function beginDuckInput() {
         if (gameState === 'gameover' || gameState === 'victory') {
           return;
         }
+        AudioSfx.unlock();
         if (gameState === 'ready') {
           startGame();
         }
@@ -2469,90 +2510,57 @@
         duckBtn.classList.remove('pressed');
       }
 
-      duckBtn.addEventListener('pointerdown', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        AudioSfx.unlock();
-        beginDuckInput();
-      });
-
-      duckBtn.addEventListener('pointerup', function (e) {
-        e.preventDefault();
-        endDuckInput();
-      });
-
-      duckBtn.addEventListener('pointercancel', function () {
-        endDuckInput();
-      });
-
-      duckBtn.addEventListener('pointerleave', function (e) {
-        if (e.pointerType === 'touch') {
-          endDuckInput();
-        }
-      });
-
-      canvas.addEventListener('pointerdown', function (e) {
-        e.preventDefault();
-        AudioSfx.unlock();
-        if (gameState === 'gameover' || gameState === 'victory') {
-          return;
-        }
-        touchPtr.active = true;
-        touchPtr.id = e.pointerId;
-        touchPtr.sx = e.clientX;
-        touchPtr.sy = e.clientY;
-        touchPtr.duckSwipe = false;
-        try {
-          canvas.setPointerCapture(e.pointerId);
-        } catch (err) {
-          /* ignore */
-        }
-        if (gameState === 'ready') {
-          startGame();
-        }
-        jumpHeld = true;
-        player.ducking = false;
-        startJump();
-      });
-
-      canvas.addEventListener('pointermove', function (e) {
-        if (!touchPtr.active || e.pointerId !== touchPtr.id) {
-          return;
-        }
-        const dy = e.clientY - touchPtr.sy;
-        const dx = e.clientX - touchPtr.sx;
-        if (!touchPtr.duckSwipe && dy > 32 && dy > Math.abs(dx) * 1.3) {
-          touchPtr.duckSwipe = true;
-          jumpHeld = false;
-          endJump();
-          downHeld = true;
-          setSpeedDrop();
-        }
-      });
-
-      function releaseCanvasPointer(e) {
-        if (!touchPtr.active || (e && e.pointerId !== touchPtr.id)) {
-          return;
-        }
-        touchPtr.active = false;
-        if (touchPtr.duckSwipe) {
-          touchPtr.duckSwipe = false;
-          downHeld = false;
-          clearSpeedDrop();
-        } else {
-          jumpHeld = false;
-          endJump();
-        }
+      function bindMobileButton(btn, onDown, onUp) {
+        btn.addEventListener('pointerdown', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          onDown();
+        });
+        btn.addEventListener('pointerup', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          onUp();
+        });
+        btn.addEventListener('pointercancel', function (e) {
+          e.preventDefault();
+          onUp();
+        });
+        btn.addEventListener('pointerleave', function (e) {
+          if (e.pointerType === 'touch') {
+            onUp();
+          }
+        });
       }
 
-      canvas.addEventListener('pointerup', function (e) {
-        e.preventDefault();
-        releaseCanvasPointer(e);
-      });
+      bindMobileButton(jumpBtn, beginJumpInput, endJumpInput);
+      bindMobileButton(duckBtn, beginDuckInput, endDuckInput);
 
-      canvas.addEventListener('pointercancel', function (e) {
-        releaseCanvasPointer(e);
-      });
+      if (!isTouchDevice) {
+        canvas.addEventListener('pointerdown', function (e) {
+          e.preventDefault();
+          AudioSfx.unlock();
+          if (gameState === 'gameover' || gameState === 'victory') {
+            return;
+          }
+          if (gameState === 'ready') {
+            startGame();
+          }
+          jumpHeld = true;
+          player.ducking = false;
+          startJump();
+        });
+
+        canvas.addEventListener('pointerup', function (e) {
+          e.preventDefault();
+          jumpHeld = false;
+          endJump();
+        });
+
+        canvas.addEventListener('pointercancel', function () {
+          jumpHeld = false;
+          endJump();
+        });
+      }
 
       playAgainBtn.addEventListener('click', function () {
         AudioSfx.unlock();
