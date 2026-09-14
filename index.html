@@ -487,14 +487,58 @@
           src.stop(t + duration);
         }
 
-        function memeBoing() {
-          oscSweep(180, 920, 0.11, 'sine', 0.62, 5000);
-          oscSweep(260, 680, 0.14, 'triangle', 0.34, 3800, 120);
-          setTimeout(function () {
-            playReady(function () {
-              oscSweep(420, 260, 0.08, 'square', 0.16, 2200, -80);
-            });
-          }, 70);
+        function memeFaahh() {
+          if (!ensureContext() || ctx.state !== 'running') {
+            return;
+          }
+          const t = now();
+          const dur = 0.58;
+
+          noiseHit(0.035, 0.16, 6200, 2.8);
+
+          const bufferSize = Math.floor(ctx.sampleRate * dur);
+          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            const p = i / bufferSize;
+            const attack = Math.min(p / 0.08, 1);
+            const release = p > 0.55 ? (1 - p) / 0.45 : 1;
+            data[i] = (Math.random() * 2 - 1) * attack * release;
+          }
+
+          const src = ctx.createBufferSource();
+          src.buffer = buffer;
+
+          const formant = ctx.createBiquadFilter();
+          formant.type = 'bandpass';
+          formant.frequency.setValueAtTime(2400, t);
+          formant.frequency.exponentialRampToValueAtTime(620, t + dur * 0.82);
+          formant.Q.setValueAtTime(1.35, t);
+          formant.Q.linearRampToValueAtTime(0.55, t + dur);
+
+          const body = ctx.createBiquadFilter();
+          body.type = 'peaking';
+          body.frequency.setValueAtTime(880, t);
+          body.frequency.exponentialRampToValueAtTime(520, t + dur * 0.75);
+          body.Q.value = 1.1;
+          body.gain.value = 8;
+
+          const soft = ctx.createBiquadFilter();
+          soft.type = 'lowpass';
+          soft.frequency.setValueAtTime(3600, t);
+          soft.frequency.exponentialRampToValueAtTime(1400, t + dur);
+
+          const gain = envGain(0.62, 0.014, dur * 0.42, dur * 0.44);
+          src.connect(formant);
+          formant.connect(body);
+          body.connect(soft);
+          soft.connect(gain);
+          connectSfx(gain);
+          src.start(t);
+          src.stop(t + dur + 0.02);
+
+          oscSweep(560, 390, dur * 0.72, 'sine', 0.12, 1100);
+          oscSweep(1120, 780, dur * 0.68, 'triangle', 0.07, 1800, 22);
         }
 
         function memeBonk() {
@@ -647,7 +691,7 @@
         }
 
         function jump() {
-          playReady(memeBoing);
+          playReady(memeFaahh);
         }
 
         function land() {
