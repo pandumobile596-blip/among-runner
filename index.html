@@ -26,6 +26,9 @@
     body {
       background: #050510;
       touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      user-select: none;
     }
 
     #game-container {
@@ -37,7 +40,7 @@
       height: 100dvh;
       background: #080818;
       overflow: hidden;
-      contain: strict;
+      -webkit-tap-highlight-color: transparent;
     }
 
     @supports (height: 100svh) {
@@ -100,6 +103,9 @@
       width: 100%;
       height: 100%;
       cursor: pointer;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
     }
 
     #overlay {
@@ -730,15 +736,37 @@
       let lastLayoutW = 0;
       let lastLayoutH = 0;
       let lockedLayoutH = 0;
+      let playSurfaceLocked = false;
       let resizeDebounceTimer = 0;
 
-      function resizeCanvas(force) {
+      function isMobileLandscape() {
+        return isTouchDevice && window.innerWidth > window.innerHeight;
+      }
+
+      function lockPlaySurface() {
+        if (!isMobileLandscape()) {
+          return;
+        }
+        const container = document.getElementById('game-container');
+        if (!lockedLayoutH) {
+          lockedLayoutH = Math.max(window.innerHeight, container.clientHeight);
+          container.style.height = lockedLayoutH + 'px';
+        }
+        playSurfaceLocked = true;
+        resizeCanvas(true, 'lock');
+      }
+
+      function resizeCanvas(force, reason) {
+        if (playSurfaceLocked && reason !== 'orientation' && reason !== 'init' && reason !== 'lock') {
+          return;
+        }
+
         const container = document.getElementById('game-container');
         const dpr = window.devicePixelRatio || 1;
         let w = container.clientWidth;
         let h = container.clientHeight;
 
-        if (isTouchDevice && window.innerWidth > window.innerHeight) {
+        if (isMobileLandscape()) {
           if (!lockedLayoutH) {
             lockedLayoutH = Math.max(h, window.innerHeight);
             container.style.height = lockedLayoutH + 'px';
@@ -750,8 +778,8 @@
 
         if (!force && lastLayoutW > 0 && lastLayoutH > 0) {
           const dw = Math.abs(w - lastLayoutW);
-          const dh = Math.abs(h - lastLayoutH);
-          if (isTouchDevice && gameState === 'playing' && dw < 48 && dh < 48) {
+          const dh = Math.abs(h - lockedLayoutH || lastLayoutH);
+          if (playSurfaceLocked && dw < 64 && dh < 64) {
             return;
           }
         }
@@ -790,8 +818,8 @@
           }
         }
 
-        const layoutChanged = Math.abs(w - lastLayoutW) > 48 || Math.abs(h - lastLayoutH) > 48 || lastLayoutW === 0;
-        if (layoutChanged) {
+        const shouldReinitSpace = reason === 'orientation' || reason === 'init' || lastLayoutW === 0;
+        if (shouldReinitSpace) {
           initSpaceField(w, h);
         }
 
@@ -799,10 +827,10 @@
         lastLayoutH = h;
       }
 
-      function scheduleResize(force) {
+      function scheduleResize(force, reason) {
         clearTimeout(resizeDebounceTimer);
         resizeDebounceTimer = setTimeout(function () {
-          resizeCanvas(force);
+          resizeCanvas(force, reason || (force ? 'lock' : 'resize'));
         }, force ? 0 : 160);
       }
 
@@ -863,10 +891,13 @@
         touchPtr.active = false;
         touchPtr.duckSwipe = false;
         duckBtn.classList.remove('pressed');
-        lockedLayoutH = 0;
-        lastLayoutW = 0;
-        lastLayoutH = 0;
-        document.getElementById('game-container').style.height = '';
+        if (!isMobileLandscape()) {
+          lockedLayoutH = 0;
+          lastLayoutW = 0;
+          lastLayoutH = 0;
+          playSurfaceLocked = false;
+          document.getElementById('game-container').style.height = '';
+        }
 
         player.x = 80;
         player.y = groundY - player.height;
@@ -913,14 +944,10 @@
       }
 
       function enterMobilePlayMode() {
-        if (!isTouchDevice || window.innerHeight > window.innerWidth) {
+        if (!isMobileLandscape()) {
           return;
         }
-        if (!lockedLayoutH) {
-          lockedLayoutH = Math.max(window.innerHeight, document.getElementById('game-container').clientHeight);
-          document.getElementById('game-container').style.height = lockedLayoutH + 'px';
-          scheduleResize(true);
-        }
+        lockPlaySurface();
         if (screen.orientation && screen.orientation.lock) {
           screen.orientation.lock('landscape').catch(function () {});
         }
@@ -2498,23 +2525,24 @@
       });
 
       window.addEventListener('resize', function () {
-        scheduleResize(false);
+        scheduleResize(false, 'resize');
       });
       window.addEventListener('orientationchange', function () {
         lockedLayoutH = 0;
         lastLayoutW = 0;
         lastLayoutH = 0;
+        playSurfaceLocked = false;
         document.getElementById('game-container').style.height = '';
         setTimeout(function () {
-          scheduleResize(true);
+          scheduleResize(true, 'orientation');
         }, 200);
       });
       if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', function () {
-          if (gameState === 'playing') {
+          if (playSurfaceLocked) {
             return;
           }
-          scheduleResize(false);
+          scheduleResize(false, 'resize');
         });
       }
 
@@ -2524,7 +2552,13 @@
         });
       }
 
-      resizeCanvas(true);
+      if (isMobileLandscape()) {
+        const bootContainer = document.getElementById('game-container');
+        lockedLayoutH = Math.max(window.innerHeight, bootContainer.clientHeight);
+        bootContainer.style.height = lockedLayoutH + 'px';
+        playSurfaceLocked = true;
+      }
+      resizeCanvas(true, 'init');
       resetGame();
       requestAnimationFrame(loop);
     })();
