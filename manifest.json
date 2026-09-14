@@ -3,10 +3,10 @@
   "short_name": "AU Runner",
   "description": "Run through space, dodge sabotage, hit 1,000 pts, find your girlfriend. Plot twist included.",
   "start_url": "./index.html",
-  "display": "standalone",
+  "display": "fullscreen",
   "background_color": "#050510",
   "theme_color": "#080818",
-  "orientation": "any",
+  "orientation": "landscape-primary",
   "lang": "en-US",
   "icons": [
     {

@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" translate="no" class="notranslate">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="google" content="notranslate">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="description" content="Among Us runner — dodge sabotage, hit 1,000 pts, find your girlfriend. No tasks required. Just vibes.">
   <meta name="theme-color" content="#080818">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -26,12 +27,63 @@
 
     #game-container {
       position: fixed;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      height: 100dvh;
+      top: env(safe-area-inset-top, 0);
+      right: env(safe-area-inset-right, 0);
+      bottom: env(safe-area-inset-bottom, 0);
+      left: env(safe-area-inset-left, 0);
+      width: auto;
+      height: auto;
       background: #080818;
       overflow: hidden;
+    }
+
+    #rotate-prompt {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: #050510;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: #e2e8f0;
+      text-align: center;
+      padding: 32px 24px;
+      padding-top: calc(32px + env(safe-area-inset-top, 0));
+    }
+
+    #rotate-prompt .rotate-icon {
+      font-size: 56px;
+      line-height: 1;
+      animation: rotateHint 2s ease-in-out infinite;
+    }
+
+    #rotate-prompt p {
+      font: 700 20px system-ui, sans-serif;
+    }
+
+    #rotate-prompt .sub {
+      font: 14px system-ui, sans-serif;
+      color: #94a3b8;
+      max-width: 260px;
+    }
+
+    @keyframes rotateHint {
+      0%, 100% { transform: rotate(0deg); }
+      35% { transform: rotate(-90deg); }
+      65% { transform: rotate(-90deg); }
+    }
+
+    @media (hover: none) and (pointer: coarse) and (orientation: portrait) {
+      #rotate-prompt {
+        display: flex;
+      }
+
+      #game-container {
+        visibility: hidden;
+        pointer-events: none;
+      }
     }
 
     #game {
@@ -116,17 +168,19 @@
     #mobile-controls {
       display: none;
       position: absolute;
-      bottom: 10px;
-      right: 10px;
+      bottom: max(12px, env(safe-area-inset-bottom, 12px));
+      right: max(12px, env(safe-area-inset-right, 12px));
       z-index: 4;
       pointer-events: none;
     }
 
-    @media (hover: none) and (pointer: coarse) {
+    @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
       #mobile-controls {
         display: block;
       }
+    }
 
+    @media (hover: none) and (pointer: coarse) {
       #overlay-content {
         font-size: 14px;
       }
@@ -136,10 +190,10 @@
       }
 
       #duckBtn {
-        padding: 16px 22px;
-        min-width: 96px;
-        min-height: 52px;
-        font-size: 15px;
+        padding: 14px 18px;
+        min-width: 72px;
+        min-height: 56px;
+        font-size: 22px;
       }
     }
 
@@ -185,6 +239,11 @@
   </style>
 </head>
 <body>
+  <div id="rotate-prompt" aria-live="polite">
+    <div class="rotate-icon" aria-hidden="true">📱</div>
+    <p>Rotate your phone</p>
+    <p class="sub">Turn sideways for fullscreen landscape mode</p>
+  </div>
   <div id="game-container">
     <canvas id="game"></canvas>
     <div id="overlay">
@@ -192,7 +251,7 @@
       <button id="playAgain">Run Again</button>
     </div>
     <div id="mobile-controls">
-      <button id="duckBtn" type="button" aria-label="Duck">↓ DUCK</button>
+      <button id="duckBtn" type="button" aria-label="Duck" translate="no" class="notranslate">↓</button>
     </div>
   </div>
 
@@ -779,8 +838,24 @@
         }
       }
 
+      function enterMobilePlayMode() {
+        if (!isTouchDevice || window.innerHeight > window.innerWidth) {
+          return;
+        }
+        const root = document.documentElement;
+        if (root.requestFullscreen) {
+          root.requestFullscreen().catch(function () {});
+        } else if (root.webkitRequestFullscreen) {
+          root.webkitRequestFullscreen();
+        }
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch(function () {});
+        }
+      }
+
       function startGame() {
         if (gameState === 'ready') {
+          enterMobilePlayMode();
           gameState = 'playing';
           AudioSfx.onGameStart();
           updateOverlay();
@@ -2066,40 +2141,38 @@
 
       function drawReadyScreen(w) {
         const cx = w * 0.5;
-        const baseY = groundY * 0.28;
+        const h = canvas.height / (window.devicePixelRatio || 1);
+        const mobileLandscape = isTouchDevice && w > h;
+        const baseY = groundY * (mobileLandscape ? 0.22 : 0.28);
+        const titleSize = mobileLandscape ? 18 : 22;
+        const lineGap = mobileLandscape ? 22 : 28;
 
         ctx.fillStyle = 'rgba(5, 5, 16, 0.55)';
         ctx.fillRect(0, 0, w, groundY);
 
         ctx.fillStyle = '#e2e8f0';
-        ctx.font = '700 22px system-ui, sans-serif';
+        ctx.font = '700 ' + titleSize + 'px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Among Us Runner', cx, baseY);
 
         ctx.fillStyle = '#f48fb1';
-        ctx.font = '700 16px system-ui, sans-serif';
-        ctx.fillText('Objective: Find your girlfriend.', cx, baseY + 34);
+        ctx.font = '700 ' + (mobileLandscape ? 14 : 16) + 'px system-ui, sans-serif';
+        ctx.fillText('Objective: Find your girlfriend.', cx, baseY + lineGap);
 
         ctx.fillStyle = '#cbd5e1';
-        ctx.font = '14px system-ui, sans-serif';
-        ctx.fillText('Run. Don\'t get ejected. Hit ' + VICTORY_SCORE + ' pts.', cx, baseY + 62);
-        ctx.fillText('Reach her. What could go wrong?', cx, baseY + 82);
+        ctx.font = (mobileLandscape ? 12 : 14) + 'px system-ui, sans-serif';
+        ctx.fillText('Hit ' + VICTORY_SCORE + ' pts. Reach her. What could go wrong?', cx, baseY + lineGap * 2);
 
         ctx.fillStyle = '#94a3b8';
-        ctx.font = '13px system-ui, sans-serif';
+        ctx.font = (mobileLandscape ? 11 : 13) + 'px system-ui, sans-serif';
         if (isTouchDevice) {
-          ctx.fillText('Tap = jump', cx, baseY + 112);
-          ctx.fillText('Hold DUCK / swipe ↓ = duck', cx, baseY + 132);
+          ctx.fillText('Tap = jump  ·  Hold ↓ = duck', cx, baseY + lineGap * 3);
         } else {
-          ctx.fillText('Space / ↑ = jump   ·   ↓ = duck', cx, baseY + 112);
+          ctx.fillText('Space / ↑ = jump   ·   ↓ = duck', cx, baseY + lineGap * 3);
         }
-        ctx.fillStyle = '#64748b';
-        ctx.font = '12px system-ui, sans-serif';
-        ctx.fillText('Jump ground hazards · Duck flying threats', cx, baseY + (isTouchDevice ? 152 : 132));
-        ctx.fillText('Score ' + VICTORY_SCORE + ' to reach her', cx, baseY + (isTouchDevice ? 170 : 150));
         ctx.fillStyle = '#71c5e8';
-        ctx.font = '600 13px system-ui, sans-serif';
-        ctx.fillText(isTouchDevice ? 'Tap to start. She won\'t wait forever.' : 'Press to start. Romance is a grind.', cx, baseY + (isTouchDevice ? 194 : 174));
+        ctx.font = '600 ' + (mobileLandscape ? 12 : 13) + 'px system-ui, sans-serif';
+        ctx.fillText(isTouchDevice ? 'Tap to start' : 'Press to start. Romance is a grind.', cx, baseY + lineGap * 4);
       }
 
       function render() {
@@ -2352,6 +2425,9 @@
       });
 
       window.addEventListener('resize', resizeCanvas);
+      window.addEventListener('orientationchange', function () {
+        setTimeout(resizeCanvas, 120);
+      });
 
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
