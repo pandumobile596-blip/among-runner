@@ -1,4 +1,4 @@
-const CACHE_NAME = 'among-us-runner-v27';
+const CACHE_NAME = 'among-us-runner-v28';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', function (e) {
