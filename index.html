@@ -290,7 +290,7 @@
       'use strict';
 
       const canvas = document.getElementById('game');
-      const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+      const ctx = canvas.getContext('2d', { alpha: false });
       const skyCache = document.createElement('canvas');
       const skyCtx = skyCache.getContext('2d', { alpha: false });
       let skyCacheReady = false;
@@ -362,6 +362,8 @@
         let lastVictoryPhase = -1;
         let unlocked = false;
         let unlockPromise = null;
+        let faahhBuffer = null;
+        let ambientTick = 0;
 
         function ensureContext() {
           if (ctx) {
@@ -492,53 +494,43 @@
             return;
           }
           const t = now();
-          const dur = 0.58;
+          const dur = 0.42;
 
-          noiseHit(0.035, 0.16, 6200, 2.8);
-
-          const bufferSize = Math.floor(ctx.sampleRate * dur);
-          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-          const data = buffer.getChannelData(0);
-          for (let i = 0; i < bufferSize; i++) {
-            const p = i / bufferSize;
-            const attack = Math.min(p / 0.08, 1);
-            const release = p > 0.55 ? (1 - p) / 0.45 : 1;
-            data[i] = (Math.random() * 2 - 1) * attack * release;
+          if (!faahhBuffer) {
+            const bufferSize = Math.floor(ctx.sampleRate * dur);
+            faahhBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = faahhBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+              const p = i / bufferSize;
+              const attack = Math.min(p / 0.08, 1);
+              const release = p > 0.55 ? (1 - p) / 0.45 : 1;
+              data[i] = (Math.random() * 2 - 1) * attack * release;
+            }
           }
 
           const src = ctx.createBufferSource();
-          src.buffer = buffer;
+          src.buffer = faahhBuffer;
 
           const formant = ctx.createBiquadFilter();
           formant.type = 'bandpass';
-          formant.frequency.setValueAtTime(2400, t);
-          formant.frequency.exponentialRampToValueAtTime(620, t + dur * 0.82);
-          formant.Q.setValueAtTime(1.35, t);
-          formant.Q.linearRampToValueAtTime(0.55, t + dur);
-
-          const body = ctx.createBiquadFilter();
-          body.type = 'peaking';
-          body.frequency.setValueAtTime(880, t);
-          body.frequency.exponentialRampToValueAtTime(520, t + dur * 0.75);
-          body.Q.value = 1.1;
-          body.gain.value = 8;
+          formant.frequency.setValueAtTime(2100, t);
+          formant.frequency.exponentialRampToValueAtTime(680, t + dur * 0.8);
+          formant.Q.value = 1.1;
 
           const soft = ctx.createBiquadFilter();
           soft.type = 'lowpass';
-          soft.frequency.setValueAtTime(3600, t);
-          soft.frequency.exponentialRampToValueAtTime(1400, t + dur);
+          soft.frequency.setValueAtTime(3200, t);
+          soft.frequency.exponentialRampToValueAtTime(1500, t + dur);
 
-          const gain = envGain(0.62, 0.014, dur * 0.42, dur * 0.44);
+          const gain = envGain(0.58, 0.012, dur * 0.4, dur * 0.48);
           src.connect(formant);
-          formant.connect(body);
-          body.connect(soft);
+          formant.connect(soft);
           soft.connect(gain);
           connectSfx(gain);
           src.start(t);
           src.stop(t + dur + 0.02);
 
-          oscSweep(560, 390, dur * 0.72, 'sine', 0.12, 1100);
-          oscSweep(1120, 780, dur * 0.68, 'triangle', 0.07, 1800, 22);
+          oscSweep(540, 380, dur * 0.65, 'sine', 0.1, 1100);
         }
 
         function memeBonk() {
@@ -766,7 +758,10 @@
         }
 
         function onPlayingUpdate(speedRatio, ducking, jumping) {
-          setAmbientIntensity(speedRatio);
+          ambientTick++;
+          if (ambientTick % 8 === 0) {
+            setAmbientIntensity(speedRatio);
+          }
           if (ducking && !wasDucking) {
             duck();
           }
@@ -852,6 +847,16 @@
       let lockedLayoutH = 0;
       let playSurfaceLocked = false;
       let resizeDebounceTimer = 0;
+      let layoutDpr = 1;
+
+      function getRenderDpr() {
+        const raw = window.devicePixelRatio || 1;
+        return isTouchDevice ? Math.min(raw, 1.75) : Math.min(raw, 2);
+      }
+
+      function canvasCssW() {
+        return canvas.width / layoutDpr;
+      }
 
       function isMobileLandscape() {
         return isTouchDevice && window.innerWidth > window.innerHeight;
@@ -877,7 +882,8 @@
         }
 
         const container = document.getElementById('game-container');
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = getRenderDpr();
+        layoutDpr = dpr;
         let w = container.clientWidth;
         let h = container.clientHeight;
 
@@ -960,7 +966,7 @@
       }
 
       function rebuildSkyCache(w, h) {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = layoutDpr;
         const cacheH = Math.max(1, Math.round(groundY * dpr));
         const cacheW = Math.max(1, Math.round(w * dpr));
         skyCache.width = cacheW;
@@ -978,7 +984,8 @@
           seed = (seed * 16807) % 2147483647;
           return (seed - 1) / 2147483646;
         }
-        for (let i = 0; i < 140; i++) {
+        const starCount = isTouchDevice ? 48 : 120;
+        for (let i = 0; i < starCount; i++) {
           spaceField.stars.push({
             x: rnd() * w * 2.5,
             y: rnd() * groundY * 0.92,
@@ -1236,7 +1243,7 @@
 
       function createGroundObstacle(type) {
         const spec = OBSTACLE_TYPES[type];
-        const w = canvas.width / (window.devicePixelRatio || 1);
+        const w = canvasCssW();
         return {
           x: w + 24,
           kind: 'ground',
@@ -1250,7 +1257,7 @@
       }
 
       function createAerialObstacle() {
-        const w = canvas.width / (window.devicePixelRatio || 1);
+        const w = canvasCssW();
         const type = pickAerialType();
         const spec = AERIAL_TYPES[type];
         const baseY = groundY - spec.yOffset;
@@ -1305,7 +1312,7 @@
         tears.length = 0;
         hearts.length = 0;
         hugTimer = performance.now();
-        const w = canvas.width / (window.devicePixelRatio || 1);
+        const w = canvasCssW();
         girl = {
           x: Math.min(w + 60, player.x + w * 0.72),
           targetX: player.x + 160,
@@ -1647,7 +1654,7 @@
             }
           }
 
-          const w = canvas.width / (window.devicePixelRatio || 1);
+          const w = canvasCssW();
           if (canSpawnGround(w)) {
             spawnGroundObstacle();
           }
@@ -1683,15 +1690,13 @@
 
       function drawSpaceParallax(w, scroll) {
         const speeds = [0.02, 0.06, 0.12];
-        const tw = frameCount * 0.04;
-        const twinkleStars = !isTouchDevice;
+        const lite = isTouchDevice;
 
         for (const star of spaceField.stars) {
           const speed = speeds[star.layer];
           const sx = ((star.x - scroll * speed) % (w + 20) + w + 20) % (w + 20) - 10;
-          const twinkle = twinkleStars ? (0.55 + Math.sin(tw + star.twinkle) * 0.45) : 1;
-          const alpha = star.brightness * twinkle;
-          if (star.size > 1.6) {
+          const alpha = star.brightness;
+          if (!lite && star.size > 1.6) {
             ctx.fillStyle = 'rgba(180, 210, 255, ' + (alpha * 0.35) + ')';
             ctx.beginPath();
             ctx.arc(sx, star.y, star.size * 2.2, 0, Math.PI * 2);
@@ -1708,20 +1713,20 @@
         const planetX = w * 0.82 - (scroll * 0.015) % (w * 0.4);
         const planetY = groundY * 0.28;
         const planetR = Math.min(w, groundY) * 0.11;
-        const pg = ctx.createRadialGradient(
-          planetX - planetR * 0.3, planetY - planetR * 0.3, planetR * 0.1,
-          planetX, planetY, planetR
-        );
-        pg.addColorStop(0, '#6b8cce');
-        pg.addColorStop(0.55, '#3d5a9e');
-        pg.addColorStop(1, '#1a2548');
-        ctx.fillStyle = pg;
+        if (lite) {
+          ctx.fillStyle = '#3d5a9e';
+        } else {
+          const pg = ctx.createRadialGradient(
+            planetX - planetR * 0.3, planetY - planetR * 0.3, planetR * 0.1,
+            planetX, planetY, planetR
+          );
+          pg.addColorStop(0, '#6b8cce');
+          pg.addColorStop(0.55, '#3d5a9e');
+          pg.addColorStop(1, '#1a2548');
+          ctx.fillStyle = pg;
+        }
         ctx.beginPath();
         ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.beginPath();
-        ctx.arc(planetX + planetR * 0.15, planetY + planetR * 0.05, planetR * 0.92, 0, Math.PI * 2);
         ctx.fill();
 
         const moonX = w * 0.12 - (scroll * 0.025) % (w * 0.5);
@@ -1734,10 +1739,6 @@
         ctx.fillStyle = '#080818';
         ctx.beginPath();
         ctx.arc(moonX + moonR * 0.35, moonY, moonR * 0.88, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(200, 210, 240, 0.15)';
-        ctx.beginPath();
-        ctx.arc(moonX - moonR * 0.25, moonY - moonR * 0.2, moonR * 0.25, 0, Math.PI * 2);
         ctx.fill();
       }
 
@@ -1763,65 +1764,65 @@
       }
 
       function drawGround(w) {
-        const h = canvas.height / (window.devicePixelRatio || 1);
+        const h = canvas.height / layoutDpr;
+        const lite = isTouchDevice;
+        const gy = Math.floor(groundY);
 
-        const voidGrad = ctx.createLinearGradient(0, groundY, 0, h);
-        voidGrad.addColorStop(0, '#050510');
-        voidGrad.addColorStop(1, '#020205');
-        ctx.fillStyle = voidGrad;
-        ctx.fillRect(0, groundY + 2, w, h - groundY);
+        ctx.fillStyle = '#050510';
+        ctx.fillRect(0, gy + 2, w, h - gy);
 
-        for (const star of spaceField.stars) {
-          if (star.layer !== 0) {
-            continue;
+        if (!lite) {
+          for (const star of spaceField.stars) {
+            if (star.layer !== 0) {
+              continue;
+            }
+            const sx = (star.x * 0.3) % w;
+            const sy = gy + 8 + (star.y * 0.15) % (h - gy - 10);
+            ctx.fillStyle = 'rgba(200, 210, 255, ' + (star.brightness * 0.25) + ')';
+            ctx.beginPath();
+            ctx.arc(sx, sy, star.size * 0.6, 0, Math.PI * 2);
+            ctx.fill();
           }
-          const sx = (star.x * 0.3) % w;
-          const sy = groundY + 8 + (star.y * 0.15) % (h - groundY - 10);
-          ctx.fillStyle = 'rgba(200, 210, 255, ' + (star.brightness * 0.25) + ')';
-          ctx.beginPath();
-          ctx.arc(sx, sy, star.size * 0.6, 0, Math.PI * 2);
-          ctx.fill();
         }
-
-        ctx.fillStyle = 'rgba(113, 197, 232, 0.06)';
-        ctx.fillRect(0, groundY - 8, w, 14);
 
         ctx.fillStyle = '#2a3048';
-        ctx.fillRect(0, groundY - 5, w, 12);
+        ctx.fillRect(0, gy - 5, w, 12);
 
+        ctx.fillStyle = lite ? '#3a4460' : '#4a5470';
         for (let x = -groundOffset; x < w; x += 44) {
           const px = Math.floor(x);
-          const pg = ctx.createLinearGradient(px, groundY - 5, px, groundY + 5);
-          pg.addColorStop(0, '#4a5470');
-          pg.addColorStop(0.5, '#3a4460');
-          pg.addColorStop(1, '#2a3048');
-          ctx.fillStyle = pg;
-          ctx.fillRect(px, Math.floor(groundY - 4), 42, 9);
-          ctx.strokeStyle = '#1a2038';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(px + 0.5, Math.floor(groundY - 3.5), 41, 8);
-          ctx.fillStyle = 'rgba(113, 197, 232, 0.35)';
-          ctx.fillRect(px + 18, Math.floor(groundY - 2), 6, 5);
-          ctx.fillStyle = '#555f78';
-          ctx.beginPath();
-          ctx.arc(px + 6, Math.floor(groundY - 1), 1.5, 0, Math.PI * 2);
-          ctx.arc(px + 36, Math.floor(groundY - 1), 1.5, 0, Math.PI * 2);
-          ctx.fill();
+          if (lite) {
+            ctx.fillRect(px, gy - 4, 42, 9);
+            ctx.fillStyle = 'rgba(113, 197, 232, 0.35)';
+            ctx.fillRect(px + 18, gy - 2, 6, 5);
+            ctx.fillStyle = '#3a4460';
+          } else {
+            const pg = ctx.createLinearGradient(px, gy - 5, px, gy + 5);
+            pg.addColorStop(0, '#4a5470');
+            pg.addColorStop(0.5, '#3a4460');
+            pg.addColorStop(1, '#2a3048');
+            ctx.fillStyle = pg;
+            ctx.fillRect(px, gy - 4, 42, 9);
+            ctx.strokeStyle = '#1a2038';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px + 0.5, gy - 3.5, 41, 8);
+            ctx.fillStyle = 'rgba(113, 197, 232, 0.35)';
+            ctx.fillRect(px + 18, gy - 2, 6, 5);
+            ctx.fillStyle = '#555f78';
+            ctx.beginPath();
+            ctx.arc(px + 6, gy - 1, 1.5, 0, Math.PI * 2);
+            ctx.arc(px + 36, gy - 1, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#4a5470';
+          }
         }
 
-        const edgeGlow = ctx.createLinearGradient(0, groundY - 6, 0, groundY + 4);
-        edgeGlow.addColorStop(0, 'rgba(113, 197, 232, 0.5)');
-        edgeGlow.addColorStop(0.5, 'rgba(113, 197, 232, 0.85)');
-        edgeGlow.addColorStop(1, 'rgba(113, 197, 232, 0.15)');
-        ctx.strokeStyle = edgeGlow;
+        ctx.strokeStyle = lite ? 'rgba(113, 197, 232, 0.75)' : 'rgba(113, 197, 232, 0.85)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(0, groundY);
-        ctx.lineTo(w, groundY);
+        ctx.moveTo(0, gy);
+        ctx.lineTo(w, gy);
         ctx.stroke();
-
-        ctx.fillStyle = 'rgba(113, 197, 232, 0.08)';
-        ctx.fillRect(0, groundY + 1, w, 6);
       }
 
       function drawHeart(x, y, size, alpha) {
@@ -2381,7 +2382,7 @@
 
       function drawReadyScreen(w) {
         const cx = w * 0.5;
-        const h = canvas.height / (window.devicePixelRatio || 1);
+        const h = canvas.height / layoutDpr;
         const mobileLandscape = isTouchDevice && w > h;
         const baseY = groundY * (mobileLandscape ? 0.22 : 0.28);
         const titleSize = mobileLandscape ? 18 : 22;
@@ -2420,17 +2421,12 @@
       }
 
       function render() {
-        const dpr = window.devicePixelRatio || 1;
-        const w = canvas.width / dpr;
-        const h = canvas.height / dpr;
+        const w = canvasCssW();
+        const h = canvas.height / layoutDpr;
 
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
         ctx.filter = 'none';
-
-        ctx.fillStyle = '#080818';
-        ctx.fillRect(0, 0, w, h);
 
         if (skyCacheReady) {
           ctx.drawImage(skyCache, 0, 0, w, groundY);
